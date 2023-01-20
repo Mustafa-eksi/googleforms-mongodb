@@ -2,6 +2,7 @@
 
 const path = require('path');
 const google = require('@googleapis/forms');
+const { MongoClient } = require("mongodb");
 const authClient = new google.auth.GoogleAuth({
   keyFile: path.join(__dirname, 'credentials.json'),
   scopes: ['https://www.googleapis.com/auth/drive'],
@@ -81,12 +82,18 @@ async function finishform(id) {
   }));
 }
 
+
+const dbcl = new MongoClient("mongodb://localhost:27017");
+const formkayit = dbcl.db("formkayit");
+const formlar = formkayit.collection('form');
+
 async function logRes(id) {
   let c = await forms.forms.responses.list({formId:id});
   if(c.data.responses) {
-    c.data.responses.forEach((v)=>{
-      for(var key of Object.keys(v.answers)) {
-        console.log(key + " -> ", v.answers[key].textAnswers.answers)
+    await c.data.responses.forEach(async (v)=>{
+      let f = await formlar.findOne(v);
+      if(!f){
+        await formlar.insertOne(v);
       }
     })
   }
@@ -99,6 +106,7 @@ async function main() {
     await logRes(id);
   }, 4000)
 }
+
 
 if (module === require.main) {
   main().catch(console.error)
