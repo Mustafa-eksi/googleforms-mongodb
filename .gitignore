@@ -1,3 +1,5 @@
 apikey.*
 node_modules/
 credentials.json
+*.zip
+.vscode/

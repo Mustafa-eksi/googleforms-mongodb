@@ -1,4 +1,5 @@
 "use strict";
+// Mail adresine göre başka formların cevaplarından kişisel veriler çekilecek ve kullanıcının tekrar tekrar girmesine gerek olmayacak.
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -44,11 +45,11 @@ const forms = google.forms({
     version: 'v1',
     auth: authClient,
 });
-function runSample() {
+function FormOlustur(baslik) {
     return __awaiter(this, void 0, void 0, function* () {
         const newForm = {
             info: {
-                title: 'Kişisel bilgilerinizi çalmama yardımcı olun!'
+                title: baslik
             },
         };
         const res = yield forms.forms.create({
@@ -60,134 +61,103 @@ function runSample() {
         return res.data.formId;
     });
 }
-function finishform(id) {
-    var _a;
+function finishform(id, title, description, items) {
     return __awaiter(this, void 0, void 0, function* () {
+        let son = [];
+        son.push({
+            updateFormInfo: {
+                info: {
+                    title: title,
+                    description: description
+                },
+                updateMask: "*"
+            }
+        });
+        items.forEach((e, i) => {
+            let temp = {};
+            temp.item = e;
+            temp.location = { index: i };
+            son.push({ createItem: temp });
+        });
         let res = yield forms.forms.batchUpdate({
             formId: id,
             requestBody: {
                 includeFormInResponse: true,
-                requests: [
-                    {
-                        updateFormInfo: {
-                            info: {
-                                title: 'Kişisel bilgilerinizi çalmama yardımcı olun!',
-                                description: "Merhaba bunu görüyorsan çoktan uyuya kalmışım demektir.",
-                                documentTitle: "Zarttiri zort zort"
-                            },
-                            updateMask: "*"
-                        }
-                    },
-                    {
-                        createItem: {
-                            item: {
-                                title: "İsminiz soyisminiz:",
-                                questionItem: {
-                                    question: {
-                                        required: true,
-                                        textQuestion: {
-                                            paragraph: false
-                                        }
-                                    }
-                                }
-                            },
-                            location: {
-                                index: 0
-                            }
-                        }
-                    },
-                    {
-                        createItem: {
-                            item: {
-                                title: "Doğduğunuz il:",
-                                questionItem: {
-                                    question: {
-                                        required: true,
-                                        textQuestion: {
-                                            paragraph: false
-                                        }
-                                    }
-                                }
-                            },
-                            location: {
-                                index: 1
-                            }
-                        }
-                    },
-                    {
-                        createItem: {
-                            item: {
-                                title: "Bir sayı seç:",
-                                questionItem: {
-                                    question: {
-                                        required: true,
-                                        choiceQuestion: {
-                                            type: 'RADIO',
-                                            options: [{ value: "1" }, { value: "2" }, { value: "3" }, { value: "4" }, { value: "5" }]
-                                        }
-                                    }
-                                }
-                            },
-                            location: {
-                                index: 2
-                            }
-                        }
-                    },
-                    {
-                        createItem: {
-                            item: {
-                                title: "Hangilerini seversin?",
-                                questionItem: {
-                                    question: {
-                                        required: true,
-                                        choiceQuestion: {
-                                            type: 'CHECKBOX',
-                                            options: [{ value: "Kahve" }, { value: "Çay" }, { value: "Ayran" }]
-                                        }
-                                    }
-                                }
-                            },
-                            location: {
-                                index: 3
-                            }
-                        }
-                    },
-                    {
-                        createItem: {
-                            item: {
-                                title: "En sevdiğin renk:",
-                                questionItem: {
-                                    question: {
-                                        required: true,
-                                        choiceQuestion: {
-                                            type: 'DROP_DOWN',
-                                            options: [{ value: "Kırmızı" }, { value: "Mavi" }, { value: "Yeşil" }, { value: "Diğer" }]
-                                        }
-                                    }
-                                }
-                            },
-                            location: {
-                                index: 4
-                            }
-                        }
-                    }
-                ],
+                requests: son,
             }
         });
-        console.log((_a = res.data.form) === null || _a === void 0 ? void 0 : _a.responderUri);
+        if (res.data.form)
+            return res.data.form;
+        else
+            throw new Error("Form güncellenemedi");
     });
 }
 let dbcl = new mongodb_1.MongoClient("mongodb://127.0.0.1:27017");
 let formkayit = dbcl.db("formkayit");
-let formlar = formkayit.collection('form');
+function JSONArrayToArray(answers) {
+    let keys = Object.keys(answers);
+    let cevaplar = [];
+    keys.forEach((e, i) => {
+        cevaplar.push(answers[e]);
+    });
+    return cevaplar;
+}
 function logRes(id) {
     return __awaiter(this, void 0, void 0, function* () {
+        let formlar = formkayit.createCollection("form-" + id);
         let c = yield forms.forms.responses.list({ formId: id });
         if (c.data.responses) {
             yield c.data.responses.forEach((v) => __awaiter(this, void 0, void 0, function* () {
                 let f = yield formlar.findOne(v);
                 if (!f) {
-                    yield formlar.insertOne(v);
+                    let asıl = v;
+                    asıl.answers = JSONArrayToArray(asıl.answers);
+                    yield formlar.insertOne(asıl);
+                }
+            }));
+        }
+    });
+}
+function OncekindenBul(öncekiID, ortakSoruID, ortakAlanDeğeri, bulunacakAlanlarınIDleri) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let ÖncekiForm = yield formkayit.createCollection("form-" + öncekiID);
+        let buldum = yield ÖncekiForm.findOne({
+            answers: { $elemMatch: {
+                    questionId: ortakSoruID,
+                    textAnswers: { answers: [ortakAlanDeğeri] }
+                } }
+        });
+        if (!buldum) {
+            throw new Error("Buldum null geldi??");
+        }
+        else {
+            let döndürülecekler = [];
+            bulunacakAlanlarınIDleri.forEach((e) => {
+                if (buldum)
+                    döndürülecekler.push(buldum.answers.find((a) => a.questionId === e).textAnswers.answers[0]);
+            });
+            return döndürülecekler;
+        }
+    });
+}
+function ÖncekindenBularakYaz(öncekiID, ortakSoruID, ortakAlanDeğeri, bulunacakAlanlarınIDleri, yazılacağınID) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let formlar = yield formkayit.createCollection("form-" + yazılacağınID);
+        let c = yield forms.forms.responses.list({ formId: yazılacağınID });
+        if (c.data.responses) {
+            yield c.data.responses.forEach((v) => __awaiter(this, void 0, void 0, function* () {
+                let f = yield formlar.findOne(v);
+                if (!f) {
+                    let asıl = v;
+                    asıl.answers = JSONArrayToArray(asıl.answers);
+                    let bulunanlar = yield OncekindenBul(öncekiID, ortakSoruID, ortakAlanDeğeri, bulunacakAlanlarınIDleri);
+                    asıl.answers.forEach((e, i) => {
+                        let ind = bulunacakAlanlarınIDleri.findIndex(e.questionId);
+                        if (ind !== -1) {
+                            asıl.answers[i].textAnswers.answers[0] = bulunanlar[ind];
+                        }
+                    });
+                    yield formlar.insertOne(asıl);
                 }
             }));
         }
@@ -195,8 +165,134 @@ function logRes(id) {
 }
 function main() {
     return __awaiter(this, void 0, void 0, function* () {
-        let id = yield runSample();
-        yield finishform(id);
+        let id = yield FormOlustur("Bu bir formdur");
+        let itemler = [
+            {
+                title: "İsminiz soyisminiz:",
+                questionItem: {
+                    question: {
+                        required: true,
+                        textQuestion: {
+                            paragraph: false
+                        }
+                    }
+                }
+            },
+            {
+                title: "Doğduğunuz il:",
+                questionItem: {
+                    question: {
+                        required: true,
+                        textQuestion: {
+                            paragraph: false
+                        }
+                    }
+                }
+            },
+            {
+                title: "Bir sayı seç:",
+                questionItem: {
+                    question: {
+                        required: true,
+                        choiceQuestion: {
+                            type: 'RADIO',
+                            options: [{ value: "1" }, { value: "2" }, { value: "3" }, { value: "4" }, { value: "5" }]
+                        }
+                    }
+                }
+            },
+            {
+                title: "Hangilerini seversin?",
+                questionItem: {
+                    question: {
+                        required: true,
+                        choiceQuestion: {
+                            type: 'CHECKBOX',
+                            options: [{ value: "Kahve" }, { value: "Çay" }, { value: "Ayran" }]
+                        }
+                    }
+                }
+            },
+            {
+                title: "En sevdiğin renk:",
+                questionItem: {
+                    question: {
+                        required: true,
+                        choiceQuestion: {
+                            type: 'DROP_DOWN',
+                            options: [{ value: "Kırmızı" }, { value: "Mavi" }, { value: "Yeşil" }, { value: "Diğer" }]
+                        }
+                    }
+                }
+            }
+        ];
+        let birinciform = yield finishform(id, "Bu bir formdur", "Bu bir açıklamadır", itemler);
+        console.log("responderuri: " + birinciform.responderUri);
+        console.log("id: " + id);
+        if (birinciform.items)
+            console.log(birinciform.items[0]);
+        let başkaBirForm = [
+            {
+                title: "İsminiz soyisminiz:",
+                questionItem: {
+                    question: {
+                        required: true,
+                        textQuestion: {
+                            paragraph: false
+                        }
+                    }
+                }
+            },
+            {
+                title: "Doğduğunuz il:",
+                questionItem: {
+                    question: {
+                        required: false,
+                        textQuestion: {
+                            paragraph: false
+                        }
+                    }
+                }
+            },
+            {
+                title: "Bir sayı seç:",
+                questionItem: {
+                    question: {
+                        required: true,
+                        choiceQuestion: {
+                            type: 'RADIO',
+                            options: [{ value: "1" }, { value: "2" }, { value: "3" }, { value: "4" }, { value: "5" }]
+                        }
+                    }
+                }
+            },
+            {
+                title: "Hangilerini seversin?",
+                questionItem: {
+                    question: {
+                        required: true,
+                        choiceQuestion: {
+                            type: 'CHECKBOX',
+                            options: [{ value: "Kahve" }, { value: "Çay" }, { value: "Ayran" }]
+                        }
+                    }
+                }
+            },
+            {
+                title: "En sevdiğin renk:",
+                questionItem: {
+                    question: {
+                        required: true,
+                        choiceQuestion: {
+                            type: 'DROP_DOWN',
+                            options: [{ value: "Kırmızı" }, { value: "Mavi" }, { value: "Yeşil" }, { value: "Diğer" }]
+                        }
+                    }
+                }
+            }
+        ];
+        //let id2 = await FormOlustur("");
+        //let uri2 = await finishform(id2, "Bu geçenkine bağlantılı bir form", "abc", başkaBirForm);
         yield setInterval(() => __awaiter(this, void 0, void 0, function* () {
             yield logRes(id);
         }), 4000);
@@ -205,4 +301,4 @@ function main() {
 if (module === require.main) {
     main().catch(console.error);
 }
-module.exports = runSample;
+module.exports = FormOlustur;
